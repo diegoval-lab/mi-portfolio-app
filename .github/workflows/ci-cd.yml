@@ -31,7 +31,7 @@ jobs:
           IMAGE_NAME="ghcr.io/${OWNER_REPO}/app-node:${{ github.sha }}"
           
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          docker build -t $IMAGE_NAME .
+          docker build -t $IMAGE_NAME ./app
 
       - name: Ejecutar escaneo de vulnerabilidades con Trivy
         uses: aquasecurity/trivy-action@master
