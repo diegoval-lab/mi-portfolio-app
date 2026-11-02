@@ -1,0 +1,68 @@
+name: CI - Build, Security and Push
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+# 1. Definimos los permisos necesarios para que el GITHUB_TOKEN pueda escribir en el Package Registry
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      # 2. Login en el GitHub Container Registry (GHCR)
+      - name: Iniciar sesión en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 3. Convertir el nombre del repositorio a minúsculas (requisito obligatorio de Docker para GHCR)
+      - name: Lowercase Repository Name
+        id: string_case
+        uses: wrastic/string-case-action@v1 # O puedes usar minúsculas directas en la variable
+        with:
+          string: ${{ github.repository }}
+
+      # 4. Construir la imagen con el tag del commit y la ruta del registro de GitHub
+      - name: Construir imagen Docker
+        run: |
+          IMAGE_NAME="ghcr.io/${{ github.repository }}/mi-app-node:${{ github.sha }}"
+          docker build -t $IMAGE_NAME .
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+
+      # 5. Escaneo de vulnerabilidades con Trivy apuntando a la imagen construida
+      - name: Ejecutar escaneo de vulnerabilidades con Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      # 6. Subir (push) la imagen oficialmente al registry de GitHub (solo si pasa los filtros y es un push a rama)
+      - name: Subir imagen a GHCR
+        if: github.event_name == 'push'
+        run: |
+          docker push ${{ env.IMAGE_NAME }}
+
+      # 7. Guardar el nombre completo de la imagen en un archivo por si el repo de Terraform necesita leerlo
+      - name: Guardar referencia de la imagen
+        if: github.event_name == 'push'
+        run: echo "${{ env.IMAGE_NAME }}" > image_ref.txt
+
+      - name: Subir artefacto con la referencia
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-ref
+          path: image_ref.txt
